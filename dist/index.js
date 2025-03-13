@@ -16,7 +16,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { ListResourcesRequestSchema, ReadResourceRequestSchema, CallToolRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import axios from "axios";
-// 自定义错误枚举
+// Custom error codes
 var ErrorCode;
 (function (ErrorCode) {
     ErrorCode["InternalError"] = "internal_error";
@@ -24,7 +24,7 @@ var ErrorCode;
     ErrorCode["InvalidParams"] = "invalid_params";
     ErrorCode["MethodNotFound"] = "method_not_found";
 })(ErrorCode || (ErrorCode = {}));
-// 自定义错误类
+// Custom error class
 class McpError extends Error {
     code;
     constructor(code, message) {
@@ -33,14 +33,14 @@ class McpError extends Error {
         this.name = "McpError";
     }
 }
-// 从环境变量获取 Metabase 配置
+// Get Metabase configuration from environment variables
 const METABASE_URL = process.env.METABASE_URL;
 const METABASE_USERNAME = process.env.METABASE_USERNAME;
 const METABASE_PASSWORD = process.env.METABASE_PASSWORD;
 if (!METABASE_URL || !METABASE_USERNAME || !METABASE_PASSWORD) {
     throw new Error("METABASE_URL, METABASE_USERNAME, and METABASE_PASSWORD environment variables are required");
 }
-// 创建自定义 Schema 对象，使用 z.object
+// Create custom Schema objects using z.object
 const ListResourceTemplatesRequestSchema = z.object({
     method: z.literal("resources/list_templates")
 });
@@ -130,7 +130,7 @@ class MetabaseServer {
                 password: METABASE_PASSWORD,
             });
             this.sessionToken = response.data.id;
-            // 设置默认请求头
+            // Set default request headers
             this.axiosInstance.defaults.headers.common['X-Metabase-Session'] = this.sessionToken;
             this.logInfo('Successfully authenticated with Metabase');
             return this.sessionToken;
@@ -148,10 +148,10 @@ class MetabaseServer {
             this.logInfo('Listing resources...', { requestStructure: JSON.stringify(request) });
             await this.getSessionToken();
             try {
-                // 获取仪表板列表
+                // Get dashboard list
                 const dashboardsResponse = await this.axiosInstance.get('/api/dashboard');
                 this.logInfo('Successfully listed resources', { count: dashboardsResponse.data.length });
-                // 将仪表板作为资源返回
+                // Return dashboards as resources
                 return {
                     resources: dashboardsResponse.data.map((dashboard) => ({
                         uri: `metabase://dashboard/${dashboard.id}`,
@@ -166,7 +166,7 @@ class MetabaseServer {
                 throw new McpError(ErrorCode.InternalError, 'Failed to list Metabase resources');
             }
         });
-        // 资源模板
+        // Resource templates
         this.server.setRequestHandler(ListResourceTemplatesRequestSchema, async () => {
             return {
                 resourceTemplates: [
@@ -191,14 +191,14 @@ class MetabaseServer {
                 ],
             };
         });
-        // 读取资源
+        // Read resources
         this.server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
             this.logInfo('Reading resource...', { requestStructure: JSON.stringify(request) });
             await this.getSessionToken();
             const uri = request.params?.uri;
             let match;
             try {
-                // 处理仪表板资源
+                // Handle dashboard resources
                 if ((match = uri.match(/^metabase:\/\/dashboard\/(\d+)$/))) {
                     const dashboardId = match[1];
                     const response = await this.axiosInstance.get(`/api/dashboard/${dashboardId}`);
@@ -210,7 +210,7 @@ class MetabaseServer {
                             }]
                     };
                 }
-                // 处理问题/卡片资源
+                // Handle question/card resources
                 else if ((match = uri.match(/^metabase:\/\/card\/(\d+)$/))) {
                     const cardId = match[1];
                     const response = await this.axiosInstance.get(`/api/card/${cardId}`);
@@ -222,7 +222,7 @@ class MetabaseServer {
                             }]
                     };
                 }
-                // 处理数据库资源
+                // Handle database resources
                 else if ((match = uri.match(/^metabase:\/\/database\/(\d+)$/))) {
                     const databaseId = match[1];
                     const response = await this.axiosInstance.get(`/api/database/${databaseId}`);
@@ -406,7 +406,7 @@ class MetabaseServer {
                         if (!query) {
                             throw new McpError(ErrorCode.InvalidParams, "SQL query is required");
                         }
-                        // 构建查询请求体
+                        // Build query request body
                         const queryData = {
                             type: "native",
                             native: {
