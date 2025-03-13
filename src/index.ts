@@ -28,6 +28,204 @@ import {
 import { z } from "zod";
 import axios, { AxiosInstance } from "axios";
 
+// SQL Documentation Structure
+interface SQLDocSection {
+  title: string;
+  content: string;
+  subsections?: Record<string, SQLDocSection>;
+}
+
+const SQL_DOCUMENTATION: Record<string, SQLDocSection> = {
+  overview: {
+    title: "SQL Documentation Overview",
+    content: `This documentation provides comprehensive information about the appointments table and related tables in the Berry Street data warehouse. This documentation is designed to help analyze appointment data effectively.`,
+    subsections: {
+      introduction: {
+        title: "Introduction",
+        content: `The appointments table in the Data Warehouse (berry-street.berrystreet schema) stores information about client appointments with healthcare providers. These appointments represent scheduled sessions between clients and providers. The table includes details about appointment scheduling, status, duration, and various system metadata.
+
+Location: berry-street.berrystreet.appointments
+
+The table contains 52 columns covering various aspects of appointments, from basic scheduling information to integration details with video conferencing platforms.`
+      }
+    }
+  },
+  table_schema: {
+    title: "Table Schema",
+    content: `Detailed information about the appointments table schema and related tables.`,
+    subsections: {
+      key_fields: {
+        title: "Key Fields",
+        content: `Primary Identifiers:
+- id: Unique identifier for the appointment (UUID format)
+- healthie_id: Numeric identifier from the Healthie system
+- client_id: Reference to the client/patient who scheduled the appointment
+- provider_id: Reference to the healthcare provider who conducts the appointment
+- appointment_type_id: Reference to the type of appointment`
+      },
+      date_fields: {
+        title: "Date and Time Fields",
+        content: `The table includes several datetime fields that track the appointment timeline:
+- created_at: When the appointment record was created
+- date: The scheduled date and time for the appointment
+- original_date: Original string representation of the appointment date
+- updated_at: When the appointment record was last updated
+- healthie_created_at: When the appointment was created in the Healthie system`
+      },
+      status_fields: {
+        title: "Status Fields",
+        content: `- status: Current status categorized as "Occurred", "Rescheduled", "Cancelled", or "No-Show"
+- internal_status: Internal tracking status
+- healthie_is_deleted: Boolean indicating if the appointment is deleted in Healthie
+- charting_note_approved: Boolean indicating if the appointment charting note has been approved`
+      }
+    }
+  },
+  date_handling: {
+    title: "Date Handling",
+    content: `Important Time Zone Information for Appointment Data`,
+    subsections: {
+      timezone_rules: {
+        title: "Timezone Rules",
+        content: `All date and time fields in the appointments table are stored in UTC. When analyzing data for specific calendar days, you must convert these timestamps to Eastern Time (EST/EDT) by subtracting 5 hours (or 4 hours during daylight saving time).`
+      },
+      conversion_examples: {
+        title: "Conversion Examples",
+        content: `Example SQL conversion:
+\`\`\`sql
+-- Convert UTC to Eastern Time
+DATE(created_at - INTERVAL '5 hours') AS eastern_date
+\`\`\``
+      }
+    }
+  },
+  common_patterns: {
+    title: "Common Analysis Patterns",
+    content: `Common patterns for analyzing appointment data`,
+    subsections: {
+      volume_analysis: {
+        title: "Appointment Volume Analysis",
+        content: `- Count bookings (using created_at) by day, week, month
+- Count scheduled/occurred appointments (using date) by day, week, month
+- Track trends in appointment bookings over time
+- Analyze busy periods or seasonal patterns`
+      },
+      provider_analysis: {
+        title: "Provider Analysis",
+        content: `- Calculate provider utilization rates
+- Track appointment hours per provider
+- Analyze provider scheduling patterns
+- Compare billing units versus actual time spent`
+      }
+    }
+  },
+  sample_queries: {
+    title: "Sample SQL Queries",
+    content: `Example SQL queries for common analysis patterns`,
+    subsections: {
+      insurance_analysis: {
+        title: "Insurance vs. Non-Insurance Appointment Analysis",
+        content: `\`\`\`sql
+-- Compare insurance vs non-insurance appointments booked in a date range
+WITH date_range_appointments AS (
+    SELECT 
+        a.client_id,
+        DATE(a.created_at - INTERVAL '5 hours') AS booking_date_est,
+        CASE 
+            WHEN (h.group_name LIKE '%insurance%' OR h.group_name LIKE '%Insurance%') THEN 'Insurance'
+            ELSE 'Non-Insurance'
+        END AS payment_type
+    FROM 
+        "berry-street"."berrystreet"."appointments" a
+    LEFT JOIN
+        "berry-street"."berrystreet"."healthie_users" h ON a.client_id = h.id
+    WHERE 
+        DATE(a.created_at - INTERVAL '5 hours') >= CURRENT_DATE - INTERVAL '30 days'
+)
+SELECT 
+    booking_date_est,
+    payment_type,
+    COUNT(*) AS appointment_count,
+    ROUND(100.0 * COUNT(*) / SUM(COUNT(*)) OVER(PARTITION BY booking_date_est), 2) AS daily_percentage
+FROM 
+    date_range_appointments
+GROUP BY 
+    booking_date_est, payment_type
+ORDER BY 
+    booking_date_est DESC, payment_type
+\`\`\``
+      },
+      conversion_analysis: {
+        title: "Initial to Follow-Up Conversion Rate",
+        content: `\`\`\`sql
+WITH patient_appointment_types AS (
+    SELECT
+        h.healthie_organization_id AS organization,
+        a.client_id,
+        CASE WHEN MIN(a.date) = a.date THEN 'Initial' ELSE 'Follow-Up' END AS visit_type,
+        COUNT(*) AS appointment_count
+    FROM
+        "berry-street"."berrystreet"."appointments" a
+    JOIN
+        "berry-street"."berrystreet"."healthie_users" h ON a.client_id = h.id
+    WHERE
+        a.status = 'Occurred'
+        AND DATE(a.date - INTERVAL '5 hours') >= CURRENT_DATE - INTERVAL '180 days'
+    GROUP BY
+        h.healthie_organization_id, a.client_id, CASE WHEN MIN(a.date) = a.date THEN 'Initial' ELSE 'Follow-Up' END
+)
+SELECT
+    organization,
+    COUNT(DISTINCT client_id) AS total_patients,
+    SUM(CASE WHEN visit_type = 'Initial' THEN appointment_count ELSE 0 END) AS initial_appointments,
+    SUM(CASE WHEN visit_type = 'Follow-Up' THEN appointment_count ELSE 0 END) AS followup_appointments,
+    ROUND(100.0 * COUNT(DISTINCT CASE WHEN visit_type = 'Follow-Up' THEN client_id END) / 
+          NULLIF(COUNT(DISTINCT CASE WHEN visit_type = 'Initial' THEN client_id END), 0), 2) AS conversion_rate
+FROM
+    patient_appointment_types
+GROUP BY
+    organization
+ORDER BY
+    conversion_rate DESC;
+\`\`\``
+      }
+    }
+  },
+  analysis_examples: {
+    title: "Analysis Examples",
+    content: `Detailed examples of common analysis scenarios`,
+    subsections: {
+      billable_analysis: {
+        title: "Billable Units vs Actual Time Analysis",
+        content: `\`\`\`sql
+SELECT
+    EXTRACT(MONTH FROM a.date - INTERVAL '5 hours') AS month,
+    EXTRACT(YEAR FROM a.date - INTERVAL '5 hours') AS year,
+    h.healthie_organization_id AS organization,
+    COUNT(*) AS appointment_count,
+    SUM(a.actual_duration) AS total_actual_minutes,
+    SUM(a.actual_duration_calculated) AS total_billable_minutes,
+    ROUND(SUM(a.actual_duration_calculated) / 15) AS total_billable_units,
+    ROUND(100.0 * (SUM(a.actual_duration_calculated) - SUM(a.actual_duration)) / SUM(a.actual_duration), 2) AS billing_efficiency_pct
+FROM
+    "berry-street"."berrystreet"."appointments" a
+JOIN
+    "berry-street"."berrystreet"."healthie_users" h ON a.provider_id = h.id
+WHERE
+    a.status = 'Occurred'
+    AND DATE(a.date - INTERVAL '5 hours') >= CURRENT_DATE - INTERVAL '12 months'
+GROUP BY
+    EXTRACT(MONTH FROM a.date - INTERVAL '5 hours'),
+    EXTRACT(YEAR FROM a.date - INTERVAL '5 hours'),
+    h.healthie_organization_id
+ORDER BY
+    year, month, organization;
+\`\`\``
+      }
+    }
+  }
+};
+
 // Custom error codes
 enum ErrorCode {
   InternalError = "internal_error",
@@ -64,6 +262,23 @@ const ListResourceTemplatesRequestSchema = z.object({
 const ListToolsRequestSchema = z.object({
   method: z.literal("tools/list")
 });
+
+// Add schema validation for SQL documentation
+const SQLDocumentationSchema = z.object({
+  title: z.string(),
+  content: z.string(),
+  subsections: z.record(z.object({
+    title: z.string(),
+    content: z.string(),
+    subsections: z.record(z.object({
+      title: z.string(),
+      content: z.string()
+    })).optional()
+  })).optional()
+});
+
+// Add output format schema
+const OutputFormatSchema = z.enum(['json', 'markdown']);
 
 class MetabaseServer {
   private server: Server;
@@ -187,15 +402,53 @@ class MetabaseServer {
         // Get dashboard list
         const dashboardsResponse = await this.axiosInstance.get('/api/dashboard');
         
-        this.logInfo('Successfully listed resources', { count: dashboardsResponse.data.length });
-        // Return dashboards as resources
+        // Combine dashboards with documentation resources
         return {
-          resources: dashboardsResponse.data.map((dashboard: any) => ({
-            uri: `metabase://dashboard/${dashboard.id}`,
-            mimeType: "application/json",
-            name: dashboard.name,
-            description: `Metabase dashboard: ${dashboard.name}`
-          }))
+          resources: [
+            ...dashboardsResponse.data.map((dashboard: any) => ({
+              uri: `metabase://dashboard/${dashboard.id}`,
+              mimeType: "application/json",
+              name: dashboard.name,
+              description: `Metabase dashboard: ${dashboard.name}`
+            })),
+            // Add SQL documentation resources
+            {
+              uri: "metabase://docs/sql/overview",
+              mimeType: "text/markdown",
+              name: "SQL Documentation Overview",
+              description: "Overview of the SQL documentation"
+            },
+            {
+              uri: "metabase://docs/sql/table_schema",
+              mimeType: "text/markdown",
+              name: "Table Schema Documentation",
+              description: "Documentation about table schemas"
+            },
+            {
+              uri: "metabase://docs/sql/date_handling",
+              mimeType: "text/markdown",
+              name: "Date Handling Documentation",
+              description: "Documentation about date and timezone handling"
+            },
+            {
+              uri: "metabase://docs/sql/common_patterns",
+              mimeType: "text/markdown",
+              name: "Common Analysis Patterns",
+              description: "Documentation about common SQL analysis patterns"
+            },
+            {
+              uri: "metabase://docs/sql/sample_queries",
+              mimeType: "text/markdown",
+              name: "Sample SQL Queries",
+              description: "Example SQL queries for common analyses"
+            },
+            {
+              uri: "metabase://docs/sql/analysis_examples",
+              mimeType: "text/markdown",
+              name: "Analysis Examples",
+              description: "Detailed examples of SQL analyses"
+            }
+          ]
         };
       } catch (error) {
         this.logError('Failed to list resources', error);
@@ -228,6 +481,12 @@ class MetabaseServer {
             mimeType: 'application/json',
             description: 'Get a Metabase database by its ID',
           },
+          {
+            uriTemplate: 'metabase://docs/sql/{section}',
+            name: 'SQL Documentation Section',
+            mimeType: 'text/markdown',
+            description: 'Access SQL documentation sections',
+          }
         ],
       };
     });
@@ -241,6 +500,39 @@ class MetabaseServer {
       let match;
 
       try {
+        // Handle SQL documentation resources
+        if ((match = uri.match(/^metabase:\/\/docs\/sql\/(\w+)$/))) {
+          const section = match[1];
+          const docSection = SQL_DOCUMENTATION[section];
+          
+          if (!docSection) {
+            throw new McpError(
+              ErrorCode.InvalidRequest,
+              `Invalid SQL documentation section: ${section}`
+            );
+          }
+
+          // Validate the documentation section
+          const validatedSection = SQLDocumentationSchema.parse(docSection);
+          
+          // Convert to markdown
+          let markdown = `# ${validatedSection.title}\n\n${validatedSection.content}\n\n`;
+          
+          if (validatedSection.subsections) {
+            for (const [key, subsection] of Object.entries(validatedSection.subsections)) {
+              markdown += `## ${subsection.title}\n\n${subsection.content}\n\n`;
+            }
+          }
+          
+          return {
+            contents: [{
+              uri: request.params?.uri,
+              mimeType: "text/markdown",
+              text: markdown
+            }]
+          };
+        }
+        
         // Handle dashboard resources
         if ((match = uri.match(/^metabase:\/\/dashboard\/(\d+)$/))) {
           const dashboardId = match[1];
@@ -290,6 +582,12 @@ class MetabaseServer {
           );
         }
       } catch (error) {
+        if (error instanceof z.ZodError) {
+          throw new McpError(
+            ErrorCode.InvalidRequest,
+            `Invalid documentation format: ${error.message}`
+          );
+        }
         if (axios.isAxiosError(error)) {
           throw new McpError(
             ErrorCode.InternalError,
@@ -387,6 +685,48 @@ class MetabaseServer {
                 }
               },
               required: ["database_id", "query"]
+            }
+          },
+          {
+            name: "convert_timezone",
+            description: "Convert UTC timestamps to Eastern Time for appointment analysis",
+            inputSchema: {
+              type: "object",
+              properties: {
+                utc_timestamp: {
+                  type: "string",
+                  description: "UTC timestamp to convert"
+                },
+                output_format: {
+                  type: "string",
+                  enum: ["date", "datetime"],
+                  description: "Output format (date or datetime)"
+                }
+              },
+              required: ["utc_timestamp"]
+            }
+          },
+          {
+            name: "search_sql_docs",
+            description: "Search through the SQL documentation",
+            inputSchema: {
+              type: "object",
+              properties: {
+                query: {
+                  type: "string",
+                  description: "Search query"
+                },
+                section: {
+                  type: "string",
+                  description: "Optional section to search in"
+                },
+                output_format: {
+                  type: "string",
+                  enum: ["json", "markdown"],
+                  description: "Output format preference"
+                }
+              },
+              required: ["query"]
             }
           }
         ]
@@ -504,6 +844,131 @@ class MetabaseServer {
               content: [{
                 type: "text",
                 text: JSON.stringify(response.data, null, 2)
+              }]
+            };
+          }
+          
+          case "convert_timezone": {
+            const timestamp = request.params?.arguments?.utc_timestamp as string;
+            const format = (request.params?.arguments?.output_format as string) || "datetime";
+            
+            if (!timestamp) {
+              throw new McpError(
+                ErrorCode.InvalidParams,
+                "UTC timestamp is required"
+              );
+            }
+
+            try {
+              const utcDate = new Date(timestamp);
+              // Subtract 5 hours for EST
+              const estDate = new Date(utcDate.getTime() - (5 * 60 * 60 * 1000));
+              
+              const result = format === "date" 
+                ? estDate.toISOString().split('T')[0]
+                : estDate.toISOString();
+
+              return {
+                content: [{
+                  type: "text",
+                  text: JSON.stringify({
+                    utc: timestamp,
+                    eastern: result
+                  }, null, 2)
+                }]
+              };
+            } catch (error) {
+              throw new McpError(
+                ErrorCode.InvalidParams,
+                "Invalid timestamp format"
+              );
+            }
+          }
+
+          case "search_sql_docs": {
+            const query = (request.params?.arguments?.query as string)?.toLowerCase();
+            const section = request.params?.arguments?.section as string;
+            const outputFormat = (request.params?.arguments?.output_format as string) || "json";
+            
+            if (!query) {
+              throw new McpError(
+                ErrorCode.InvalidParams,
+                "Search query is required"
+              );
+            }
+
+            const results: Array<{
+              section: string;
+              title: string;
+              content: string;
+              matches: string[];
+            }> = [];
+
+            const searchSection = (
+              sectionName: string,
+              docSection: SQLDocSection,
+              parentTitle?: string
+            ) => {
+              const fullTitle = parentTitle 
+                ? `${parentTitle} > ${docSection.title}`
+                : docSection.title;
+
+              if (docSection.content.toLowerCase().includes(query)) {
+                results.push({
+                  section: sectionName,
+                  title: fullTitle,
+                  content: docSection.content,
+                  matches: [docSection.content]
+                });
+              }
+
+              if (docSection.subsections) {
+                for (const [key, subsection] of Object.entries(docSection.subsections)) {
+                  if (subsection.content.toLowerCase().includes(query)) {
+                    results.push({
+                      section: `${sectionName}.${key}`,
+                      title: `${fullTitle} > ${subsection.title}`,
+                      content: subsection.content,
+                      matches: [subsection.content]
+                    });
+                  }
+                }
+              }
+            };
+
+            if (section && section in SQL_DOCUMENTATION) {
+              const docSection = SQL_DOCUMENTATION[section];
+              searchSection(section, docSection);
+            } else if (!section) {
+              for (const [key, docSection] of Object.entries(SQL_DOCUMENTATION)) {
+                searchSection(key, docSection);
+              }
+            } else {
+              throw new McpError(
+                ErrorCode.InvalidParams,
+                `Invalid section: ${section}`
+              );
+            }
+
+            if (outputFormat === 'markdown') {
+              let markdown = `# Search Results for "${query}"\n\n`;
+              results.forEach(result => {
+                markdown += `## ${result.title}\n\n`;
+                markdown += `${result.content}\n\n`;
+              });
+
+              return {
+                content: [{
+                  type: "text",
+                  text: markdown
+                }]
+              };
+            }
+
+            return {
+              content: [{
+                type: "text",
+                text: JSON.stringify(results, null, 2)
               }]
             };
           }
