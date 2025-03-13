@@ -1,17 +1,17 @@
 #!/usr/bin/env node
 
-// 为老版本 Node.js 添加 AbortController polyfill
+// Add AbortController polyfill for older Node.js versions
 import AbortController from 'abort-controller';
 global.AbortController = global.AbortController || AbortController;
 
 /**
- * Metabase MCP 服务器
- * 实现与 Metabase API 的交互，提供以下功能：
- * - 获取仪表板列表
- * - 获取问题列表
- * - 获取数据库列表
- * - 执行问题查询
- * - 获取仪表板详情
+ * Metabase MCP Server
+ * Implements interaction with Metabase API, providing the following features:
+ * - Get dashboard list
+ * - Get question list
+ * - Get database list
+ * - Execute question queries
+ * - Get dashboard details
  */
 
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
@@ -145,7 +145,7 @@ class MetabaseServer {
   }
 
   /**
-   * 获取 Metabase 会话令牌
+   * Get Metabase session token
    */
   private async getSessionToken(): Promise<string> {
     if (this.sessionToken) {
@@ -176,7 +176,7 @@ class MetabaseServer {
   }
 
   /**
-   * 设置资源处理程序
+   * Set up resource handlers
    */
   private setupResourceHandlers() {
     this.server.setRequestHandler(ListResourcesRequestSchema, async (request) => {
@@ -302,7 +302,7 @@ class MetabaseServer {
   }
 
   /**
-   * 设置工具处理程序
+   * Set up tool handlers
    */
   private setupToolHandlers() {
     this.server.setRequestHandler(ListToolsRequestSchema, async () => {
